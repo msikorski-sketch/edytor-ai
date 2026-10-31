@@ -1,0 +1,66 @@
+# Edytor AI na VPS za Traefikiem (Let's Encrypt). Domeny i IP serwera pochodzą z .env (EDYTOR_DOMENA_*, EDYTOR_IP_SERWERA):
+# panel https://$EDYTOR_DOMENA_PANELU (logowanie), podgląd wersji roboczej https://$EDYTOR_DOMENA_PODGLADU (osobny origin),
+# opublikowane strony https://$EDYTOR_DOMENA_STRON/<projekt>/ albo własne domeny projektów.
+# Własna domena projektu: wpis w ustawieniach projektu + rekord A na IP serwera. Edytor sam generuje router dla Traefika
+# (plik w /opt/traefik-dynamiczne, Traefik z --providers.file.directory i watch), Traefik pobiera certyfikat.
+# Przed pierwszym startem: mkdir -p dane kopie && chown 1000:1000 dane kopie (proces działa jako uid 1000).
+services:
+  edytor:
+    build: .
+    env_file: .env
+    environment:
+      TZ: Europe/Warsaw
+      EDYTOR_DANE: /dane
+      EDYTOR_ADRES_PANELU: https://${EDYTOR_DOMENA_PANELU:?ustaw EDYTOR_DOMENA_PANELU w .env}
+      EDYTOR_ADRES_PODGLADU: https://${EDYTOR_DOMENA_PODGLADU:?ustaw EDYTOR_DOMENA_PODGLADU w .env}
+      # Projekty bez własnej domeny działają pod https://$EDYTOR_DOMENA_STRON/<projekt>/
+      EDYTOR_ADRES_STRON: https://${EDYTOR_DOMENA_STRON:?ustaw EDYTOR_DOMENA_STRON w .env}
+      # Zapisy rozmów Claude Code na trwałym wolumenie, żeby „pamięć” czatu przetrwała przebudowę kontenera.
+      CLAUDE_CONFIG_DIR: /dane/claude
+      # Własne domeny: katalog konfiguracji czytany przez Traefika i IP, na które musi wskazywać DNS domeny.
+      EDYTOR_TRAEFIK_KATALOG: /traefik
+    volumes:
+      - ./dane:/dane
+      - ./kopie:/kopie   # codzienne kopie zapasowe danych (14 ostatnich)
+      - /opt/traefik-dynamiczne:/traefik   # konfiguracja domen projektów dla Traefika (file provider)
+    mem_limit: 1536m
+    shm_size: 256m
+    restart: unless-stopped
+    stop_grace_period: 10s
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/zdrowie').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      # Po starcie sprawdzaj co 2 s: Traefik wpuszcza ruch dopiero przy „healthy”, więc to skraca przerwę po restarcie.
+      start_period: 60s
+      start_interval: 2s
+    labels:
+      - traefik.enable=true
+      # Kompresja (zstd/br/gzip wg przeglądarki) tylko dla typów tekstowych: obrazki są już skompresowane,
+      # a strumień czatu (text/event-stream) musi płynąć bez buforowania.
+      - traefik.http.middlewares.edytor-kompresja.compress=true
+      - traefik.http.middlewares.edytor-kompresja.compress.includedcontenttypes=text/html,text/css,text/javascript,application/javascript,application/json,image/svg+xml,text/plain,application/xml,text/xml
+      - traefik.http.routers.edytor.rule=Host(`${EDYTOR_DOMENA_PANELU}`)
+      - traefik.http.routers.edytor.entrypoints=websecure
+      - traefik.http.routers.edytor.middlewares=edytor-kompresja
+      - traefik.http.routers.edytor.tls.certresolver=letsencrypt
+      - traefik.http.routers.edytor.service=edytor
+      - traefik.http.services.edytor.loadbalancer.server.port=8080
+      - traefik.http.routers.podglad-edytor.rule=Host(`${EDYTOR_DOMENA_PODGLADU}`)
+      - traefik.http.routers.podglad-edytor.entrypoints=websecure
+      - traefik.http.routers.podglad-edytor.middlewares=edytor-kompresja
+      - traefik.http.routers.podglad-edytor.tls.certresolver=letsencrypt
+      - traefik.http.routers.podglad-edytor.service=podglad-edytor
+      - traefik.http.services.podglad-edytor.loadbalancer.server.port=8082
+      # Usługa stron (8081). Routery własnych domen projektów generuje edytor w pliku dla Traefika
+      # (EDYTOR_TRAEFIK_KATALOG) i wskazują ją jako edytor-strony@docker.
+      - traefik.http.services.edytor-strony.loadbalancer.server.port=8081
+      - traefik.http.routers.strony.rule=Host(`${EDYTOR_DOMENA_STRON}`)
+      - traefik.http.routers.strony.entrypoints=websecure
+      - traefik.http.routers.strony.middlewares=edytor-kompresja
+      - traefik.http.routers.strony.tls.certresolver=letsencrypt
+      - traefik.http.routers.strony.service=edytor-strony

@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Edytor AI — logowanie</title>
+  <link rel="stylesheet" href="/edytor.css">
+</head>
+<body class="logowanie">
+  <form id="formularz" class="karta-logowania">
+    <h1>Edytor AI</h1>
+    <p>Zaznacz element strony, napisz, co zmienić, a Claude to zrobi.</p>
+    <label for="haslo">Hasło</label>
+    <input id="haslo" type="password" autocomplete="current-password" required autofocus>
+    <button type="submit">Zaloguj</button>
+    <p id="komunikat" class="blad" role="alert"></p>
+  </form>
+  <script src="/logowanie.js"></script>
+</body>
+</html>

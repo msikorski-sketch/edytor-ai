@@ -1,0 +1,5 @@
+node_modules/
+.env
+dane/
+kopie/
+narzedzia/wdroz.env

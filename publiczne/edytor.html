@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Edytor AI</title>
+  <link rel="stylesheet" href="/edytor.css">
+</head>
+<body>
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <symbol id="i-kursor" viewBox="0 0 24 24"><path d="M4 3l7 17 2.5-7.5L21 10z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>
+    <symbol id="i-komputer" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 20h8M12 16v4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+    <symbol id="i-tablet" viewBox="0 0 24 24"><rect x="5" y="2" width="14" height="20" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="18" r="1" fill="currentColor"/></symbol>
+    <symbol id="i-telefon" viewBox="0 0 24 24"><rect x="7" y="2" width="10" height="20" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M11 18h2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+    <symbol id="i-historia" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5M12 7v5l3 2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-wyslij" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-spinacz" viewBox="0 0 24 24"><path d="M21 11l-8.5 8.5a5 5 0 0 1-7-7L14 4a3.5 3.5 0 0 1 5 5l-8.5 8.5a2 2 0 0 1-3-3L15 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+    <symbol id="i-gora" viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-zewn" viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>
+    <symbol id="i-ustawienia" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+    <symbol id="i-stop" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"/></symbol>
+    <symbol id="i-koperta" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3 7l9 6 9-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>
+    <symbol id="i-iskra" viewBox="0 0 24 24"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8zM19 16l.8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8z" fill="currentColor"/></symbol>
+  </svg>
+
+  <header class="pasek">
+    <div class="pasek-lewa">
+      <span class="logo"><svg><use href="#i-iskra"/></svg>Edytor AI</span>
+      <select id="projekt" class="wybor wybor-projektu" aria-label="Projekt"></select>
+      <select id="podstrona" class="wybor" aria-label="Podstrona"></select>
+      <button id="zaznacz" class="przycisk przelacznik" aria-pressed="false" title="Zaznacz element (S)">
+        <svg><use href="#i-kursor"/></svg><span class="etykieta">Zaznacz element</span>
+      </button>
+    </div>
+
+    <div class="urzadzenia" role="radiogroup" aria-label="Szerokość podglądu">
+      <button role="radio" aria-checked="true" data-szerokosc="100%" title="Komputer"><svg><use href="#i-komputer"/></svg></button>
+      <button role="radio" aria-checked="false" data-szerokosc="820px" title="Tablet (820 px)"><svg><use href="#i-tablet"/></svg></button>
+      <button role="radio" aria-checked="false" data-szerokosc="390px" title="Telefon (390 px)"><svg><use href="#i-telefon"/></svg></button>
+    </div>
+
+    <div class="pasek-prawa">
+      <span id="status-publikacji" class="znaczek"></span>
+      <a id="link-strony" class="przycisk duch" target="_blank" rel="noopener" title="Otwórz opublikowaną stronę" hidden><svg><use href="#i-zewn"/></svg><span class="etykieta">Strona</span></a>
+      <button id="pliki-przycisk" class="przycisk duch" title="Zdjęcia i pliki strony"><svg><use href="#i-folder"/></svg><span class="etykieta">Pliki</span></button>
+      <button id="formularze-przycisk" class="przycisk duch" title="Wiadomości z formularzy na stronie"><svg><use href="#i-koperta"/></svg><span class="etykieta">Formularze</span></button>
+      <button id="historia-przycisk" class="przycisk duch" title="Historia zmian"><svg><use href="#i-historia"/></svg><span class="etykieta">Historia</span></button>
+      <button id="ustawienia-przycisk" class="przycisk duch ikona-przycisk" title="Ustawienia projektu"><svg><use href="#i-ustawienia"/></svg></button>
+      <button id="opublikuj" class="przycisk glowny">Opublikuj</button>
+      <a href="/wyloguj" class="przycisk duch maly">Wyloguj</a>
+    </div>
+  </header>
+
+  <main class="uklad">
+    <section class="podglad">
+      <div id="baner-wersji" class="baner" hidden>
+        <span>Widzisz wersję <strong>sprzed zmiany</strong> <code id="baner-commit"></code></span>
+        <button id="baner-wroc" class="przycisk maly">Wróć do aktualnej</button>
+      </div>
+      <div class="scena">
+        <div id="obudowa" class="obudowa">
+          <iframe id="ramka" title="Podgląd strony (wersja robocza)"></iframe>
+        </div>
+      </div>
+    </section>
+
+    <aside class="czat">
+      <div class="czat-naglowek">
+        <div>
+          <div class="czat-tytul">Asystent</div>
+          <div id="model" class="czat-model"></div>
+          <div id="zuzycie" class="czat-model"></div>
+        </div>
+        <button id="nowa-rozmowa" class="przycisk duch maly" title="Asystent zapomni wcześniejsze polecenia">Nowa rozmowa</button>
+      </div>
+
+      <div id="wiadomosci" class="wiadomosci" aria-live="polite"></div>
+
+      <form id="formularz" class="kompozytor">
+        <div id="zaznaczony" class="zaznaczony" hidden>
+          <span id="zaznaczony-tag" class="tag"></span>
+          <span id="zaznaczony-opis" class="zaznaczony-opis"></span>
+          <button type="button" id="rodzic" class="ikona" title="Zaznacz element nadrzędny"><svg><use href="#i-gora"/></svg></button>
+          <button type="button" id="odznacz" class="ikona" title="Usuń zaznaczenie" aria-label="Usuń zaznaczenie">×</button>
+        </div>
+        <div id="zalaczniki" class="zalaczniki" hidden></div>
+        <div class="pole">
+          <textarea id="tresc" rows="1" placeholder="Opisz zmianę… (możesz wkleić obrazek jako wzór)"></textarea>
+          <div class="pole-akcje">
+            <label class="ikona" title="Dołącz obrazek">
+              <svg><use href="#i-spinacz"/></svg>
+              <input id="plik" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden>
+            </label>
+            <button type="submit" id="wyslij" class="wyslij" title="Wyślij (Enter)" aria-label="Wyślij"><svg><use href="#i-wyslij"/></svg></button>
+            <button type="button" id="zatrzymaj" class="wyslij zatrzymaj" title="Zatrzymaj asystenta" aria-label="Zatrzymaj" hidden><svg><use href="#i-stop"/></svg></button>
+          </div>
+        </div>
+        <div class="dol-kompozytora">
+          <label class="tryb-globalny" title="Zmiany na wielu podstronach: asystent najpierw przygotuje plan do akceptacji"><input type="checkbox" id="tryb-globalny"> Zadanie dla całej strony</label>
+          <span class="podpowiedz">Enter wysyła · S zaznacza element</span>
+        </div>
+      </form>
+    </aside>
+  </main>
+
+  <dialog id="okno-historii" class="okno">
+    <div class="okno-naglowek">
+      <strong>Historia zmian</strong>
+      <button class="ikona" data-zamknij aria-label="Zamknij">×</button>
+    </div>
+    <p id="historia-blad" class="komunikat-blad" hidden></p>
+    <ol id="lista-historii" class="lista-historii"></ol>
+  </dialog>
+
+  <dialog id="okno-plikow" class="okno szerokie">
+    <div class="okno-naglowek">
+      <strong>Pliki strony</strong>
+      <button class="ikona" data-zamknij aria-label="Zamknij">×</button>
+    </div>
+    <div class="okno-tresc">
+      <label id="strefa-wgrywania" class="strefa-wgrywania">
+        <input id="plik-do-wgrania" type="file" multiple hidden>
+        <strong>Przeciągnij pliki tutaj</strong> albo kliknij, żeby wybrać. Zdjęcia trafią do katalogu <code>obrazy/</code>.
+      </label>
+      <p class="podpowiedz-lewa">Kliknij nazwę, żeby skopiować ścieżkę — wklej ją w poleceniu, np. „wstaw obrazy/zespol.jpg pod nagłówkiem”.</p>
+      <ul id="lista-plikow" class="lista-plikow"></ul>
+    </div>
+  </dialog>
+
+  <dialog id="okno-ustawien" class="okno">
+    <div class="okno-naglowek">
+      <strong>Ustawienia projektu</strong>
+      <button class="ikona" data-zamknij aria-label="Zamknij">×</button>
+    </div>
+    <form id="formularz-ustawien" class="okno-tresc formularz-pionowy">
+      <label>Nazwa projektu <input id="ust-nazwa" maxlength="80" required></label>
+      <label>Własna domena (opcjonalnie)
+        <input id="ust-domena" placeholder="np. www.salon-ewa.pl" autocomplete="off">
+        <small id="ust-domena-stan">Ustaw u rejestratora rekord A domeny na adres IP serwera. Gdy DNS zacznie wskazywać na serwer, edytor sam doda domenę i certyfikat HTTPS (sprawdza co 5 minut). Bez domeny strona działa pod adresem poniżej.</small>
+      </label>
+      <p class="adres-strony">Adres strony: <a id="ust-adres" target="_blank" rel="noopener"></a></p>
+      <fieldset class="zrodlo">
+        <legend>Powiadomienia o wiadomościach z formularzy</legend>
+        <label>E-mail <input id="ust-form-email" type="email" placeholder="np. kontakt@salon-ewa.pl" autocomplete="off"></label>
+        <small id="ust-smtp-info"></small>
+        <label>Webhook (opcjonalnie, np. n8n) <input id="ust-form-webhook" type="url" placeholder="https://…" autocomplete="off"></label>
+        <small>Każda wiadomość jest zapisywana w edytorze (przycisk „Formularze”), nawet gdy powiadomienie się nie uda.</small>
+      </fieldset>
+      <details class="strefa-usuwania">
+        <summary>Usuń projekt</summary>
+        <p>Projekt zniknie z listy, a jego opublikowana strona przestanie działać. Pliki trafią do kosza na serwerze (<code>dane/kosz/</code>), skąd administrator może je odzyskać.</p>
+        <div class="okno-akcje">
+          <input id="ust-usun-potwierdzenie" placeholder="wpisz identyfikator projektu" autocomplete="off">
+          <button type="button" id="ust-usun" class="przycisk niebezpieczny">Usuń</button>
+        </div>
+      </details>
+      <div class="okno-akcje">
+        <a id="ust-eksport" class="przycisk" download>Pobierz stronę (ZIP)</a>
+        <button type="button" id="ust-raport" class="przycisk" hidden>Raport importu</button>
+        <span class="odstep"></span>
+        <button type="submit" class="przycisk glowny">Zapisz</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="okno-nowego" class="okno">
+    <div class="okno-naglowek">
+      <strong>Nowy projekt</strong>
+      <button class="ikona" data-zamknij aria-label="Zamknij">×</button>
+    </div>
+    <form id="formularz-nowego" class="okno-tresc formularz-pionowy">
+      <label>Nazwa <input id="nowy-nazwa" maxlength="80" placeholder="np. Salon fryzjerski Ewa" required></label>
+      <label>Identyfikator (adres) <input id="nowy-id" maxlength="40" pattern="[a-z0-9]([a-z0-9-]*[a-z0-9])?" required>
+        <small>Małe litery, cyfry i myślniki. Tworzy adres strony.</small></label>
+      <fieldset class="zrodlo">
+        <legend>Na start</legend>
+        <label><input type="radio" name="zrodlo" value="pusta" checked> Pusta strona</label>
+        <label><input type="radio" name="zrodlo" value="glina"> Przykład (pracownia ceramiki)</label>
+        <label><input type="radio" name="zrodlo" value="url"> Import z adresu istniejącej strony (np. WordPress)</label>
+        <div id="nowy-url-pole" hidden>
+          <input id="nowy-url" type="url" placeholder="https://stara-strona.pl">
+          <small>Pobiera do 300 podstron (300 MB) i przerabia formularze kontaktowe. Po imporcie strona jest statyczna: wyszukiwarka, sklep, logowanie i komentarze z WordPressa nie będą działać.</small>
+        </div>
+        <label><input type="radio" name="zrodlo" value="zip"> Import z archiwum ZIP</label>
+        <input id="nowy-zip" type="file" accept=".zip,application/zip" hidden>
+      </fieldset>
+      <p id="nowy-postep" class="postep-importu" hidden></p>
+      <p id="nowy-blad" class="komunikat-blad" hidden></p>
+      <div class="okno-akcje">
+        <span class="odstep"></span>
+        <button type="submit" id="nowy-utworz" class="przycisk glowny">Utwórz</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="okno-formularzy" class="okno szerokie">
+    <div class="okno-naglowek">
+      <strong>Wiadomości z formularzy</strong>
+      <button class="ikona" data-zamknij aria-label="Zamknij">×</button>
+    </div>
+    <div class="okno-tresc">
+      <p class="podpowiedz-lewa">Formularz na stronie działa, gdy ma <code>action="__formularz"</code> i <code>method="post"</code> — poproś asystenta: „dodaj formularz kontaktowy”. Powiadomienia e-mail ustawisz w ustawieniach projektu (zębatka).</p>
+      <ol id="lista-zgloszen" class="lista-zgloszen"></ol>
+    </div>
+  </dialog>
+
+  <dialog id="okno-raportu" class="okno szerokie">
+    <div class="okno-naglowek">
+      <strong>Raport migracji</strong>
+      <button class="ikona" data-zamknij aria-label="Zamknij">×</button>
+    </div>
+    <div class="okno-tresc" id="tresc-raportu"></div>
+  </dialog>
+
+  <div id="tosty" class="tosty" aria-live="polite" popover="manual"></div>
+
+  <script src="/edytor.js"></script>
+</body>
+</html>

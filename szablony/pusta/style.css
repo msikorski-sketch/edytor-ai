@@ -1,0 +1,14 @@
+:root {
+  --tekst: #1f2937;
+  --tlo: #ffffff;
+  --akcent: #2563eb;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  color: var(--tekst);
+  background: var(--tlo);
+}
+body { margin: 0; line-height: 1.6; }
+.naglowek { padding: 20px 6vw; border-bottom: 1px solid #e5e7eb; }
+.logo { font-weight: 700; color: var(--akcent); text-decoration: none; }
+.tresc { padding: 80px 6vw; max-width: 760px; }
+.tresc h1 { font-size: clamp(32px, 5vw, 52px); margin: 0 0 16px; line-height: 1.15; }
+.stopka { padding: 30px 6vw; border-top: 1px solid #e5e7eb; font-size: 14px; color: #6b7280; }

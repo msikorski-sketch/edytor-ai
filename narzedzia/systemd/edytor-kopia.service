@@ -1,0 +1,10 @@
+[Unit]
+Description=Kopia danych Edytora AI na Hetzner Storage Box (restic)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/edytor-ai/narzedzia/kopia-zdalna.sh
+Nice=10
+IOSchedulingClass=idle
