@@ -20,7 +20,8 @@
   etykieta.id = "edytor-etykieta";
   document.body.append(etykieta);
 
-  const pomocnicze = (el) => el === etykieta || el === styl;
+  // Elementy dodawane przez integracje (baner zgód, przycisk kontaktu) nie leżą w plikach strony — nie da się ich zaznaczyć.
+  const pomocnicze = (el) => el === etykieta || el === styl || Boolean(el.closest?.("[data-edytor-integracja]"));
   function tag(el) {
     const klasa = [...el.classList].find((k) => !k.startsWith("edytor-"));
     return el.tagName.toLowerCase() + (klasa ? `.${klasa}` : "");

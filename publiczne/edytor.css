@@ -19,6 +19,7 @@
   -webkit-font-smoothing: antialiased;
 }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; } /* klasy z display (np. .przycisk) nie mogą przebić atrybutu hidden */
 body { margin: 0; background: var(--tlo); height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
 button, select, input, textarea { font: inherit; color: inherit; }
 svg { width: 16px; height: 16px; flex: none; }
@@ -54,6 +55,8 @@ code { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: .9em; 
 .pasek > .urzadzenia { margin: 0 auto; flex: none; }
 .pasek-lewa, .pasek-prawa { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1 1 0; }
 .pasek-prawa { justify-content: flex-end; }
+/* Obie strony nie kurczą się poniżej treści, więc nie wjeżdżają na przełącznik urządzeń (wąskie ekrany: same ikony, niżej). */
+.pasek-lewa, .pasek-prawa { flex: 1 0 auto; }
 .logo { display: inline-flex; align-items: center; gap: 6px; font-weight: 650; margin-right: 6px; }
 .logo svg { color: var(--akcent); width: 18px; height: 18px; }
 .urzadzenia { display: flex; padding: 3px; background: #f3f4f6; border-radius: 9px; }
@@ -176,7 +179,7 @@ body.logowanie { align-items: center; justify-content: center; }
 .karta-logowania .blad { color: var(--blad); }
 
 /* Węższe ekrany: przyciski paska tylko z ikonami (podpis w dymku `title`), żeby nic na siebie nie nachodziło. */
-@media (max-width: 1400px) {
+@media (max-width: 1860px) {
   .pasek .etykieta { display: none; }
   .pasek .przycisk { padding: 0 9px; }
   .wybor-projektu { max-width: 170px; }
@@ -184,7 +187,13 @@ body.logowanie { align-items: center; justify-content: center; }
 @media (max-width: 1000px) {
   .uklad { grid-template-columns: 1fr 340px; }
   .urzadzenia { display: none; }
+}
+@media (max-width: 1200px) {
   .znaczek { display: none; }
+  .wybor-projektu { max-width: 140px; }
+}
+@media (max-width: 1100px) {
+  .logo { font-size: 0; gap: 0; } /* zostaje sama ikona */
 }
 
 /* ---------- projekty, pliki, ustawienia ---------- */
@@ -260,3 +269,29 @@ body.logowanie { align-items: center; justify-content: center; }
 .waga-srednia .tag { background: #b45309; }
 .waga-niska .tag { background: #475569; }
 .ok-odp { color: #15803d; }
+
+/* ---------- integracje ---------- */
+.lista-integracji { max-height: 66vh; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
+.lista-integracji h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--przygaszony); margin: 12px 0 6px; }
+.lista-integracji section { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px; }
+.lista-integracji section h3 { grid-column: 1 / -1; }
+.karta-integracji { border: 1px solid var(--linia); border-radius: 10px; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+.karta-integracji.wlaczona { border-color: var(--akcent); background: var(--akcent-jasny); }
+.karta-integracji label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; font-weight: 500; }
+.karta-integracji .naglowek-integracji { flex-direction: row; align-items: center; gap: 8px; font-size: 14px; }
+.karta-integracji input:not([type=checkbox]), .karta-integracji textarea { padding: 6px 8px; border: 1px solid var(--linia-mocna); border-radius: 6px; font-weight: 400; background: #fff; }
+.karta-integracji textarea { font-family: ui-monospace, Menlo, monospace; font-size: 12px; resize: vertical; }
+.opis-integracji { margin: 0; font-size: 12.5px; color: var(--przygaszony); line-height: 1.45; }
+
+/* ---------- konta ---------- */
+.lista-kont { list-style: none; margin: 0 0 14px; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.lista-kont li { display: flex; align-items: center; gap: 8px; padding: 8px; border-radius: 8px; border: 1px solid var(--linia); }
+.lista-kont .opis { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.lista-kont small { color: var(--przygaszony); }
+.ramka-konta { border: 1px solid var(--linia); border-radius: 10px; padding: 12px; }
+.dwie-kolumny { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.projekty-konta { border: 1px solid var(--linia); border-radius: 8px; padding: 8px 10px; display: flex; flex-wrap: wrap; gap: 6px 16px; }
+.projekty-konta label { flex-direction: row; align-items: center; gap: 6px; font-weight: 400; }
+.nowe-haslo { background: #fffbeb; border: 1px solid #fcd34d; border-radius: 8px; padding: 8px 10px; margin: 0; }
+.nowe-haslo code { user-select: all; font-size: 14px; font-weight: 600; }
+.karta-logowania input + label { margin-top: 4px; }

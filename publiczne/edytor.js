@@ -10,6 +10,7 @@ let zalaczniki = []; // { typ, dane (base64), url (podgląd) }
 let ogladanaWersja = null; // commit pokazywany w trybie „przed”
 let pracuje = false;
 let tury = [];
+let ja = null; // zalogowane konto: { login, nazwa, rola, mozliwosci }
 
 // ---------- pomocnicze ----------
 
@@ -58,10 +59,10 @@ async function wczytajProjekty(wybrany) {
   const { projekty } = await api("/api/projekty");
   const zapamietany = wybrany || localStorage.getItem("edytor-projekt");
   projekt = projekty.some((p) => p.id === zapamietany) ? zapamietany : projekty[0]?.id;
-  $("projekt").replaceChildren(
+  $("projekt").replaceChildren(...[
     ...projekty.map((p) => new Option(p.nazwa, p.id, false, p.id === projekt)),
-    new Option("＋ Nowy projekt…", "__nowy"),
-  );
+    ja?.mozliwosci.administrator ? new Option("＋ Nowy projekt…", "__nowy") : null,
+  ].filter(Boolean));
 }
 
 async function przelaczProjekt(id) {
@@ -99,8 +100,10 @@ const aktualnaStrona = () => $("podstrona").value || "index.html";
 // Każdy segment ścieżki kodujemy osobno: nazwy z importu mogą mieć spacje, „?” czy „#”.
 const kodujSciezke = (sciezka) => sciezka.split("/").map(encodeURIComponent).join("/");
 
+// Podgląd działa w piaskownicy (pusty origin „null”), więc wiadomości do niego idą z celem „*”. To tylko polecenia
+// interfejsu (tryb zaznaczania, przewinięcie) — nic poufnego. Odbiorcę wyznacza ramka (contentWindow).
 function doPodgladu(wiadomosc) {
-  if (podglad) ramka.contentWindow?.postMessage({ edytor: true, ...wiadomosc }, podglad.adres);
+  if (podglad) ramka.contentWindow?.postMessage({ edytor: true, ...wiadomosc }, "*");
 }
 
 async function zaladujPodglad({ zachowajPrzewiniecie = true } = {}) {
@@ -126,7 +129,8 @@ async function wczytajPodstrony() {
 $("podstrona").addEventListener("change", () => { odznacz(); zaladujPodglad({ zachowajPrzewiniecie: false }); });
 
 addEventListener("message", (e) => {
-  if (!podglad || e.origin !== podglad.adres || e.source !== ramka.contentWindow || !e.data?.edytor) return;
+  // Nadawcę rozpoznajemy po ramce; origin to „null” (piaskownica) albo adres podglądu.
+  if (!podglad || !["null", podglad.adres].includes(e.origin) || e.source !== ramka.contentWindow || !e.data?.edytor) return;
   const z = e.data;
   if (z.typ === "gotowy") {
     // Kliknięcie linku w podglądzie zmienia podstronę w selektorze.
@@ -570,6 +574,7 @@ async function odswiezStatus() {
 
 // Zużycie modelu: dzisiaj i prognoza na miesiąc (22 dni robocze) z ostatnich 30 dni, w cenach Claude Sonnet 5.5.
 async function pokazZuzycie() {
+  if (!ja?.mozliwosci.administrator) return; // koszty widzi tylko administrator
   try {
     const z = await api("/api/zuzycie?dni=30");
     const usd = (v) => `${(v || 0).toFixed(2).replace(".", ",")} $`;
@@ -590,7 +595,7 @@ $("historia-przycisk").addEventListener("click", async () => {
   $("lista-historii").replaceChildren(...h.wpisy.map((w, i) => {
     const opis = utworz("div", { className: "opis" },
       utworz("div", { textContent: w.opis }),
-      utworz("small", { textContent: `${w.commit} · ${new Date(w.kiedy).toLocaleString("pl-PL")}` }));
+      utworz("small", { textContent: `${w.commit} · ${new Date(w.kiedy).toLocaleString("pl-PL")}${w.autor ? ` · ${w.autor}` : ""}` }));
     if (w.commit === h.opublikowano) opis.querySelector("small").append(utworz("span", { className: "opublikowana", textContent: "na stronie" }));
     const podglad = utworz("button", { className: "przycisk maly", textContent: "Podgląd" });
     podglad.addEventListener("click", () => { $("okno-historii").close(); pokazWersje(i === 0 ? null : w.commit); });
@@ -605,7 +610,7 @@ $("historia-przycisk").addEventListener("click", async () => {
     });
     const cofnij = utworz("button", { className: "przycisk maly", textContent: "Cofnij" });
     cofnij.addEventListener("click", async () => { if (await cofnijZmiane(w.commit)) $("okno-historii").close(); });
-    return utworz("li", {}, opis, podglad, w.commit === h.opublikowano ? null : publikuj, i === h.wpisy.length - 1 ? null : cofnij);
+    return utworz("li", {}, opis, podglad, w.commit === h.opublikowano || !ja.mozliwosci.publikacja ? null : publikuj, i === h.wpisy.length - 1 ? null : cofnij);
   }));
   $("okno-historii").showModal();
 });
@@ -646,7 +651,7 @@ async function pokazPliki() {
       pokazPliki();
       odswiezStatus();
     });
-    return utworz("li", {}, miniatura, nazwa, utworz("small", { textContent: rozmiar(p.rozmiar) }), usun);
+    return utworz("li", {}, miniatura, nazwa, utworz("small", { textContent: rozmiar(p.rozmiar) }), ja.mozliwosci.pliki ? usun : null);
   }));
 }
 
@@ -801,6 +806,7 @@ $("formularze-przycisk").addEventListener("click", async () => {
   const projektListy = projekt;
   const lista = $("lista-zgloszen");
   lista.replaceChildren(utworz("li", { className: "pusto", textContent: "Wczytuję…" }));
+  $("zgloszenia-csv").href = `/api/p/${projektListy}/formularze?format=csv`;
   $("okno-formularzy").showModal();
   try {
     const { zgloszenia } = await apiProjektu("formularze");
@@ -813,6 +819,13 @@ $("formularze-przycisk").addEventListener("click", async () => {
         utworz("span", { textContent: z.strona || "" }));
       const statusy = Object.entries(z.powiadomienie || {}).map(([kanal, wynik]) => `${kanal}: ${wynik}`).join(" · ");
       const status = statusy ? utworz("div", { className: `status${/błąd/.test(statusy) ? " blad" : ""}`, textContent: statusy }) : null;
+      // Usunięcie na żądanie osoby, która wysłała formularz (RODO) — dwuklik jak przy plikach.
+      const usun = ja.mozliwosci.usuwanieZgloszen ? utworz("button", { className: "ikona", type: "button", textContent: "×", title: "Usuń to zgłoszenie" }) : null;
+      usun?.addEventListener("click", async () => {
+        if (!confirmWOknie(usun, "Usunąć to zgłoszenie na stałe?")) return;
+        try { await api(`/api/p/${projektListy}/usun-zgloszenie`, wyslijJson({ id: z.id })); usun.closest("li").remove(); tost("Usunięto zgłoszenie."); } catch (e) { tost(e.message, true); }
+      });
+      naglowek.append(usun ?? "");
       return utworz("li", {}, naglowek, pola, status);
     }));
   } catch (e) {
@@ -918,9 +931,159 @@ async function importujZAdresu(parametry) {
   if (wynik.uwagi?.length) apiProjektu("raport-importu").then(pokazRaport, () => {});
 }
 
+// ---------- integracje ----------
+
+$("integracje-przycisk").addEventListener("click", async () => {
+  const lista = $("lista-integracji");
+  lista.replaceChildren(utworz("p", { className: "pusto", textContent: "Wczytuję…" }));
+  $("okno-integracji").showModal();
+  try { pokazIntegracje(projekt, await apiProjektu("integracje")); } catch (e) { lista.replaceChildren(utworz("p", { className: "pusto", textContent: e.message })); }
+});
+
+function pokazIntegracje(projektListy, { katalog, ustawienia }) {
+  const kategorie = [...new Set(katalog.map((i) => i.kategoria))];
+  $("lista-integracji").replaceChildren(...kategorie.map((kat) => utworz("section", {},
+    utworz("h3", { textContent: kat }),
+    ...katalog.filter((i) => i.kategoria === kat).map((i) => kartaIntegracji(projektListy, i, ustawienia[i.id] || {})))));
+}
+
+function kartaIntegracji(projektListy, i, wartosci) {
+  const wlacznik = utworz("input", { type: "checkbox", checked: Boolean(wartosci.wlaczona) });
+  const pola = i.pola.map((p) => {
+    const pole = p.typ === "wybor"
+      ? utworz("select", { className: "wybor" }, ...Object.entries(p.opcje).map(([v, t]) => new Option(t, v, false, wartosci[p.klucz] === v)))
+      : utworz(p.typ === "obszar" ? "textarea" : "input", { value: wartosci[p.klucz] || "", placeholder: p.przyklad || "", rows: 3, autocomplete: "off", spellcheck: false });
+    pole.dataset.klucz = p.klucz;
+    pole.disabled = Boolean(p.tylkoAdmin && !ja.mozliwosci.administrator);
+    return utworz("label", {}, `${p.etykieta}${p.wymagane ? " *" : ""}`, pole);
+  });
+  const zapisz = utworz("button", { type: "submit", className: "przycisk maly glowny", textContent: "Zapisz" });
+  const karta = utworz("form", { className: `karta-integracji${wartosci.wlaczona ? " wlaczona" : ""}` },
+    utworz("label", { className: "naglowek-integracji" }, wlacznik, utworz("b", { textContent: i.nazwa })),
+    utworz("p", { className: "opis-integracji", textContent: i.opis }),
+    ...pola,
+    utworz("div", { className: "okno-akcje" }, utworz("span", { className: "odstep" }), zapisz));
+  karta.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    zapisz.disabled = true;
+    const dane = Object.fromEntries([...karta.querySelectorAll("[data-klucz]")].map((el) => [el.dataset.klucz, el.value]));
+    try {
+      const wynik = await api(`/api/p/${projektListy}/integracje`, wyslijJson({ id: i.id, wlaczona: wlacznik.checked, wartosci: dane }));
+      tost(`${i.nazwa}: ${wlacznik.checked ? "włączono" : "wyłączono"}. Strona opublikowana na nowo.`);
+      if (projektListy === projekt) { pokazIntegracje(projektListy, wynik); zaladujPodglad(); }
+    } catch (blad) { tost(blad.message, true); zapisz.disabled = false; }
+  });
+  return karta;
+}
+
+// ---------- konto i konta użytkowników ----------
+
+const NAZWY_ROL = { administrator: "Administrator", redaktor: "Redaktor", klient: "Klient" };
+
+// Ukrywa to, czego rola nie może zrobić (serwer i tak sprawdza każde zapytanie).
+function zastosujUprawnienia() {
+  const m = ja.mozliwosci;
+  $("konto-nazwa").textContent = ja.nazwa;
+  $("opublikuj").hidden = !m.publikacja;
+  $("ustawienia-przycisk").hidden = !m.ustawienia;
+  $("integracje-przycisk").hidden = !m.integracje;
+  $("strefa-wgrywania").hidden = !m.pliki;
+  $("zuzycie").hidden = !m.administrator;
+  document.querySelector(".tryb-globalny").hidden = !m.zadaniaGlobalne;
+}
+
+$("konto-przycisk").addEventListener("click", () => {
+  $("konto-opis").textContent = `${ja.nazwa} (${ja.login}) · ${NAZWY_ROL[ja.rola]}${ja.glowne ? " · konto główne z pliku .env" : ""}`;
+  $("formularz-hasla").hidden = !ja.mozliwosci.zmianaHasla;
+  $("formularz-hasla").reset();
+  $("konta-przycisk").hidden = !ja.mozliwosci.administrator;
+  $("okno-konta").showModal();
+});
+
+$("formularz-hasla").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  try {
+    await api("/api/konto/haslo", wyslijJson({ stare: $("haslo-stare").value, nowe: $("haslo-nowe").value }));
+    $("okno-konta").close();
+    tost("Zmieniono hasło. Inne zalogowane przeglądarki zostały wylogowane.");
+  } catch (blad) { tost(blad.message, true); }
+});
+
+$("konta-przycisk").addEventListener("click", () => { $("okno-konta").close(); otworzKonta(); });
+
+let edytowaneKonto = null;
+async function otworzKonta() {
+  const { konta, projekty } = await api("/api/uzytkownicy");
+  $("lista-kont").replaceChildren(...konta.map((k) => {
+    const opis = utworz("div", { className: "opis" },
+      utworz("b", { textContent: `${k.nazwa} (${k.login})` }),
+      utworz("small", { textContent: `${NAZWY_ROL[k.rola]} · ${k.projekty === "*" ? "wszystkie projekty" : k.projekty.length ? k.projekty.join(", ") : "brak projektów"}${k.glowne ? " · konto główne (.env)" : ""}` }));
+    if (k.glowne) return utworz("li", {}, opis);
+    const edytuj = utworz("button", { className: "przycisk maly", type: "button", textContent: "Edytuj" });
+    edytuj.addEventListener("click", () => formularzKonta(projekty, k));
+    const haslo = utworz("button", { className: "przycisk maly", type: "button", textContent: "Nowe hasło" });
+    haslo.addEventListener("click", async () => {
+      try { pokazNoweHaslo(k.login, (await api("/api/uzytkownicy/haslo", wyslijJson({ login: k.login }))).haslo); } catch (e) { tost(e.message, true); }
+    });
+    const usun = utworz("button", { className: "ikona", type: "button", textContent: "×", title: "Usuń konto" });
+    usun.addEventListener("click", async () => {
+      if (!confirmWOknie(usun, `Usunąć konto ${k.login}?`)) return;
+      try { await api("/api/uzytkownicy/usun", wyslijJson({ login: k.login })); tost(`Usunięto konto ${k.login}.`); otworzKonta(); } catch (e) { tost(e.message, true); }
+    });
+    return utworz("li", {}, opis, edytuj, haslo, usun);
+  }));
+  formularzKonta(projekty, null);
+  if (!$("okno-kont").open) $("okno-kont").showModal();
+}
+
+function formularzKonta(projekty, k) {
+  edytowaneKonto = k;
+  $("formularz-konta").reset();
+  $("k-haslo").hidden = true;
+  $("konto-tryb").textContent = k ? `Edycja konta ${k.login}` : "Nowe konto";
+  $("k-zapisz").textContent = k ? "Zapisz zmiany" : "Utwórz konto";
+  $("k-anuluj").hidden = !k;
+  $("k-login").value = k?.login || "";
+  $("k-login").readOnly = Boolean(k);
+  $("k-nazwa").value = k?.nazwa || "";
+  $("k-rola").value = k?.rola || "redaktor";
+  const wybrane = new Set(Array.isArray(k?.projekty) ? k.projekty : []);
+  $("k-projekty").replaceChildren(utworz("legend", { textContent: "Projekty" }), ...projekty.map((p) =>
+    utworz("label", {}, utworz("input", { type: "checkbox", value: p.id, checked: wybrane.has(p.id) }), ` ${p.nazwa}`)));
+  $("k-projekty").hidden = $("k-rola").value === "administrator";
+}
+$("k-rola").addEventListener("change", () => { $("k-projekty").hidden = $("k-rola").value === "administrator"; });
+$("k-anuluj").addEventListener("click", () => otworzKonta());
+
+// Hasło startowe pokazujemy raz — serwer przechowuje tylko jego skrót.
+function pokazNoweHaslo(login, haslo) {
+  $("k-haslo").hidden = false;
+  $("k-haslo").replaceChildren(`Hasło dla ${login} (pokazywane tylko teraz — przekaż je bezpiecznie, np. osobnym kanałem): `, utworz("code", { textContent: haslo }));
+}
+
+$("formularz-konta").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const dane = {
+    nowe: !edytowaneKonto, login: $("k-login").value, nazwa: $("k-nazwa").value, rola: $("k-rola").value,
+    projekty: [...$("k-projekty").querySelectorAll("input:checked")].map((c) => c.value),
+  };
+  try {
+    const wynik = await api("/api/uzytkownicy", wyslijJson(dane));
+    await otworzKonta();
+    tost(dane.nowe ? `Utworzono konto ${wynik.konto.login}.` : "Zapisano konto.");
+    if (wynik.haslo) pokazNoweHaslo(wynik.konto.login, wynik.haslo);
+  } catch (blad) { tost(blad.message, true); }
+});
+
 // ---------- start ----------
 
 (async () => {
+  ja = await api("/api/ja");
+  zastosujUprawnienia();
   await wczytajProjekty();
+  if (!projekt) {
+    wiadomosci.replaceChildren(utworz("p", { className: "pusto", textContent: "Nie masz jeszcze dostępu do żadnego projektu. Poproś administratora o przypisanie projektu do Twojego konta." }));
+    return;
+  }
   await przelaczProjekt(projekt);
 })().catch((e) => tost(`Nie udało się wczytać panelu: ${e.message}`, true));

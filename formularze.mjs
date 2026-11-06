@@ -18,7 +18,8 @@ const OKNO_LIMITU = 10 * 60 * 1000;
 const WYSYLEK_W_OKNIE = 5;
 // Bajty zgłoszeń na projekt i miesiąc — chroni dysk przed zalewem spamu (testy ustawiają mniejszą wartość).
 const LIMIT_MIESIACA = Number(process.env.EDYTOR_FORMULARZE_LIMIT_KB || 20 * 1024) * 1024;
-const MIESIACE_PRZECHOWYWANIA = 24;
+// Okres przechowywania zgłoszeń (RODO: nie dłużej, niż to potrzebne) — starsze pliki miesięczne są usuwane.
+const MIESIACE_PRZECHOWYWANIA = Math.max(1, Number(process.env.EDYTOR_FORMULARZE_MIESIACE || 24));
 const CZYTAJ_KONCOWKE = 2 * 1024 * 1024; // panel czyta najwyżej tyle z końca każdego pliku
 
 // SMTP z .env: EDYTOR_SMTP=smtps://uzytkownik:haslo@smtp.dostawca.pl:465, EDYTOR_SMTP_OD=strona@twojadomena.pl.
@@ -92,7 +93,19 @@ const katalogZgloszen = (projekt) => path.join(projekt.katalog, "formularze");
 const plikMiesiaca = (projekt, data = new Date()) => path.join(katalogZgloszen(projekt), `${data.toISOString().slice(0, 7)}.jsonl`);
 // Dopisanie zgłoszenia. Katalog „formularze” tworzymy bez `recursive`: jeśli projekt został w międzyczasie usunięty
 // (katalog przeniesiony do kosza), zapis się nie uda zamiast po cichu odtworzyć porzucony katalog projektu.
-async function dopisz(projekt, wpis, { sprawdzLimit = false } = {}) {
+// Zapisy i usunięcia zgłoszeń jednego projektu idą po kolei. Usunięcie przepisuje plik miesiąca (odczyt → plik
+// tymczasowy → rename); dopisanie w trakcie trafiłoby do starego pliku, który rename wyrzuca, i zgłoszenie by przepadło.
+function wKolejce(projekt, praca) {
+  const wynik = (projekt.kolejkaFormularzy || Promise.resolve()).then(praca);
+  projekt.kolejkaFormularzy = wynik.catch(() => {});
+  return wynik;
+}
+
+function dopisz(projekt, wpis, opcje) {
+  return wKolejce(projekt, () => dopiszTeraz(projekt, wpis, opcje));
+}
+
+async function dopiszTeraz(projekt, wpis, { sprawdzLimit = false } = {}) {
   if (projekt.usuniety) throw Object.assign(new Error("Ta strona nie przyjmuje już wiadomości."), { kod: 410 });
   await fs.mkdir(katalogZgloszen(projekt)).catch((e) => { if (e.code !== "EEXIST") throw e; });
   const plik = plikMiesiaca(projekt);
@@ -233,12 +246,15 @@ async function koncowkaLinii(plik) {
 }
 
 // Ostatnie zgłoszenia projektu (najnowsze pierwsze), ze statusem powiadomień dołączonym po id.
-export async function listaZgloszen(projekt, ile = 200) {
+// `wszystkie` — całe pliki zamiast końcówek (eksport CSV; panel pokazuje tylko najnowsze).
+export async function listaZgloszen(projekt, ile = 200, { wszystkie = false } = {}) {
   const pliki = (await fs.readdir(katalogZgloszen(projekt)).catch(() => [])).filter((n) => n.endsWith(".jsonl")).sort().reverse();
   const zgloszenia = [];
   const statusy = new Map();
   for (const plik of pliki) {
-    for (const linia of (await koncowkaLinii(path.join(katalogZgloszen(projekt), plik))).reverse()) {
+    const sciezka = path.join(katalogZgloszen(projekt), plik);
+    const linie = wszystkie ? (await fs.readFile(sciezka, "utf8")).split("\n").filter(Boolean) : await koncowkaLinii(sciezka);
+    for (const linia of linie.reverse()) {
       let wpis;
       try { wpis = JSON.parse(linia); } catch { continue; }
       if (wpis.powiadomienie) statusy.set(wpis.id, wpis.powiadomienie);
@@ -247,4 +263,40 @@ export async function listaZgloszen(projekt, ile = 200) {
     if (zgloszenia.length >= ile) break;
   }
   return zgloszenia.slice(0, ile).map((z) => ({ ...z, powiadomienie: statusy.get(z.id) || null }));
+}
+
+// Usuwa jedno zgłoszenie (prawo do usunięcia danych, art. 17 RODO) — razem z linią statusu powiadomień.
+// Działa w kolejce zapisów projektu (wKolejce), więc nie gubi zgłoszeń dopisywanych w tym samym czasie.
+export function usunZgloszenie(projekt, id) {
+  if (typeof id !== "string" || !/^[0-9a-f-]{36}$/.test(id)) return Promise.resolve(false);
+  return wKolejce(projekt, () => usunTeraz(projekt, id));
+}
+
+async function usunTeraz(projekt, id) {
+  let usunieto = false;
+  for (const nazwa of (await fs.readdir(katalogZgloszen(projekt)).catch(() => [])).filter((n) => n.endsWith(".jsonl"))) {
+    const plik = path.join(katalogZgloszen(projekt), nazwa);
+    const linie = (await fs.readFile(plik, "utf8")).split("\n").filter(Boolean);
+    const zostaja = linie.filter((l) => { try { return JSON.parse(l).id !== id; } catch { return true; } });
+    if (zostaja.length === linie.length) continue;
+    const tymczasowy = `${plik}.${crypto.randomBytes(4).toString("hex")}.tmp`;
+    await fs.writeFile(tymczasowy, zostaja.map((l) => `${l}\n`).join(""));
+    await fs.rename(tymczasowy, plik);
+    usunieto = true;
+  }
+  return usunieto;
+}
+
+// CSV do eksportu (prawo dostępu i przenoszenia danych, art. 15 i 20 RODO; archiwum klienta). Średnik jako separator
+// i BOM — tak Excel w polskiej wersji otwiera plik bez kreatora importu. Wartości zaczynające się od =+-@ dostają
+// apostrof, żeby arkusz nie wykonał ich jako formuły (CSV injection).
+export function csvZgloszen(zgloszenia) {
+  const pola = [...new Set(zgloszenia.flatMap((z) => Object.keys(z.pola)))];
+  const komorka = (v) => {
+    let t = String(v ?? "");
+    if (/^[=+\-@\t\r]/.test(t)) t = `'${t}`;
+    return /[";\n\r]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
+  };
+  const wiersze = [["kiedy", "strona", "temat", ...pola], ...zgloszenia.map((z) => [z.kiedy, z.strona, z.temat, ...pola.map((p) => z.pola[p])])];
+  return `\ufeff${wiersze.map((w) => w.map(komorka).join(";")).join("\r\n")}\r\n`;
 }

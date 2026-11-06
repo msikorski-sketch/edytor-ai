@@ -22,6 +22,8 @@
     <symbol id="i-ustawienia" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
     <symbol id="i-stop" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"/></symbol>
     <symbol id="i-koperta" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3 7l9 6 9-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>
+    <symbol id="i-klocek" viewBox="0 0 24 24"><path d="M10 4a2 2 0 1 1 4 0v2h4a1 1 0 0 1 1 1v4h-2a2 2 0 1 0 0 4h2v4a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1v-4h2a2 2 0 1 0 0-4H5V7a1 1 0 0 1 1-1h4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>
+    <symbol id="i-osoba" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M4 21a8 8 0 0 1 16 0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
     <symbol id="i-iskra" viewBox="0 0 24 24"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8zM19 16l.8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8z" fill="currentColor"/></symbol>
   </svg>
 
@@ -46,10 +48,11 @@
       <a id="link-strony" class="przycisk duch" target="_blank" rel="noopener" title="Otwórz opublikowaną stronę" hidden><svg><use href="#i-zewn"/></svg><span class="etykieta">Strona</span></a>
       <button id="pliki-przycisk" class="przycisk duch" title="Zdjęcia i pliki strony"><svg><use href="#i-folder"/></svg><span class="etykieta">Pliki</span></button>
       <button id="formularze-przycisk" class="przycisk duch" title="Wiadomości z formularzy na stronie"><svg><use href="#i-koperta"/></svg><span class="etykieta">Formularze</span></button>
+      <button id="integracje-przycisk" class="przycisk duch" title="Analityka, baner cookies, czat i inne integracje" hidden><svg><use href="#i-klocek"/></svg><span class="etykieta">Integracje</span></button>
       <button id="historia-przycisk" class="przycisk duch" title="Historia zmian"><svg><use href="#i-historia"/></svg><span class="etykieta">Historia</span></button>
       <button id="ustawienia-przycisk" class="przycisk duch ikona-przycisk" title="Ustawienia projektu"><svg><use href="#i-ustawienia"/></svg></button>
       <button id="opublikuj" class="przycisk glowny">Opublikuj</button>
-      <a href="/wyloguj" class="przycisk duch maly">Wyloguj</a>
+      <button id="konto-przycisk" class="przycisk duch maly" title="Twoje konto"><svg><use href="#i-osoba"/></svg><span id="konto-nazwa" class="etykieta"></span></button>
     </div>
   </header>
 
@@ -202,6 +205,7 @@
     </div>
     <div class="okno-tresc">
       <p class="podpowiedz-lewa">Formularz na stronie działa, gdy ma <code>action="__formularz"</code> i <code>method="post"</code> — poproś asystenta: „dodaj formularz kontaktowy”. Powiadomienia e-mail ustawisz w ustawieniach projektu (zębatka).</p>
+      <div class="okno-akcje"><a id="zgloszenia-csv" class="przycisk maly" download>Pobierz wszystkie (CSV)</a><span class="odstep"></span></div>
       <ol id="lista-zgloszen" class="lista-zgloszen"></ol>
     </div>
   </dialog>
@@ -212,6 +216,65 @@
       <button class="ikona" data-zamknij aria-label="Zamknij">×</button>
     </div>
     <div class="okno-tresc" id="tresc-raportu"></div>
+  </dialog>
+
+  <dialog id="okno-integracji" class="okno szerokie">
+    <div class="okno-naglowek">
+      <strong>Integracje</strong>
+      <button class="ikona" data-zamknij aria-label="Zamknij">×</button>
+    </div>
+    <div class="okno-tresc">
+      <p class="podpowiedz-lewa">Zamienniki wtyczek WordPressa. Edytor wstawia je do każdej podstrony przy publikacji, więc nie zmieniają plików strony i nie da się ich przypadkiem usunąć poleceniem. Zapis od razu publikuje stronę na nowo (bez zmian w treści). Skrypty śledzące uruchamiają się dopiero po zgodzie w banerze cookies.</p>
+      <div id="lista-integracji" class="lista-integracji"></div>
+    </div>
+  </dialog>
+
+  <dialog id="okno-konta" class="okno">
+    <div class="okno-naglowek">
+      <strong>Twoje konto</strong>
+      <button class="ikona" data-zamknij aria-label="Zamknij">×</button>
+    </div>
+    <div class="okno-tresc formularz-pionowy">
+      <p id="konto-opis"></p>
+      <form id="formularz-hasla" class="formularz-pionowy" hidden>
+        <label>Obecne hasło <input id="haslo-stare" type="password" autocomplete="current-password" required></label>
+        <label>Nowe hasło (min. 10 znaków) <input id="haslo-nowe" type="password" autocomplete="new-password" minlength="10" required></label>
+        <div class="okno-akcje"><span class="odstep"></span><button type="submit" class="przycisk">Zmień hasło</button></div>
+      </form>
+      <div class="okno-akcje">
+        <button type="button" id="konta-przycisk" class="przycisk" hidden>Konta użytkowników</button>
+        <span class="odstep"></span>
+        <a href="/wyloguj" class="przycisk">Wyloguj</a>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog id="okno-kont" class="okno szerokie">
+    <div class="okno-naglowek">
+      <strong>Konta użytkowników</strong>
+      <button class="ikona" data-zamknij aria-label="Zamknij">×</button>
+    </div>
+    <div class="okno-tresc">
+      <p class="podpowiedz-lewa"><b>Redaktor</b>: polecenia, zadania dla całej strony, publikacja, pliki, formularze, integracje w przypisanych projektach. <b>Klient</b>: polecenia i cofanie zmian w wersji roboczej, podgląd i wiadomości z formularzy, bez publikacji. <b>Administrator</b>: wszystko, także konta, nowe projekty i koszty. Zmiana roli lub projektów wylogowuje konto.</p>
+      <ul id="lista-kont" class="lista-kont"></ul>
+      <form id="formularz-konta" class="formularz-pionowy ramka-konta">
+        <strong id="konto-tryb">Nowe konto</strong>
+        <div class="dwie-kolumny">
+          <label>Login <input id="k-login" required pattern="[a-z0-9][a-z0-9_\-]{1,30}[a-z0-9]" autocomplete="off" placeholder="np. ewa"></label>
+          <label>Imię i nazwisko / firma <input id="k-nazwa" maxlength="80" autocomplete="off"></label>
+        </div>
+        <label>Rola
+          <select id="k-rola" class="wybor"><option value="redaktor">Redaktor</option><option value="klient">Klient</option><option value="administrator">Administrator</option></select>
+        </label>
+        <fieldset id="k-projekty" class="projekty-konta"><legend>Projekty</legend></fieldset>
+        <p id="k-haslo" class="nowe-haslo" hidden></p>
+        <div class="okno-akcje">
+          <button type="button" id="k-anuluj" class="przycisk" hidden>Anuluj edycję</button>
+          <span class="odstep"></span>
+          <button type="submit" class="przycisk glowny" id="k-zapisz">Utwórz konto</button>
+        </div>
+      </form>
+    </div>
   </dialog>
 
   <div id="tosty" class="tosty" aria-live="polite" popover="manual"></div>

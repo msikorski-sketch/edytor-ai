@@ -456,6 +456,208 @@ test("zadania globalne: walidacja planu i wykonania, cofnięcie zakresu zmian", 
   assert.equal((await api("/api/p/salon-test/cofnij-zadanie", json({ od: "abcdef1" }))).status, 409);
 });
 
+// Logowanie kontem z osobnego adresu (X-Forwarded-For), żeby testy nie wyczerpały limitu prób z localhost.
+let numerAdresu = 0;
+async function zaloguj(login, haslo) {
+  const odp = await fetch(`${PANEL}/zaloguj`, { ...json({ login, haslo }), headers: { "Content-Type": "application/json", "X-Forwarded-For": `10.9.0.${++numerAdresu}` } });
+  return odp.ok ? odp.headers.get("set-cookie").split(";")[0] : odp.status;
+}
+const jako = (c) => (sciezka, opcje = {}) => fetch(`${PANEL}${sciezka}`, { ...opcje, headers: { Cookie: c, ...opcje.headers } });
+
+test("konta: role ograniczają projekty i operacje, hasła i wersje sesji", { timeout: 30000 }, async () => {
+  assert.equal((await api("/api/projekty?id=konta-a&nazwa=A&szablon=pusta", { method: "POST" })).status, 200);
+  assert.equal((await api("/api/projekty?id=konta-b&nazwa=B&szablon=pusta", { method: "POST" })).status, 200);
+  const ja = await (await api("/api/ja")).json();
+  assert.equal(ja.rola, "administrator");
+  assert.equal(ja.glowne, true);
+
+  // Zakładanie kont: walidacja i hasło startowe pokazywane raz.
+  assert.equal((await api("/api/uzytkownicy", json({ nowe: true, login: "Zły login!", rola: "klient", projekty: [] }))).status, 400);
+  assert.equal((await api("/api/uzytkownicy", json({ nowe: true, login: "ewa", rola: "klient", projekty: ["nie-ma"] }))).status, 400);
+  assert.equal((await api("/api/uzytkownicy", json({ nowe: true, login: "admin", rola: "klient", projekty: [] }))).status, 400, "konta głównego nie da się nadpisać");
+  const klient = await (await api("/api/uzytkownicy", json({ nowe: true, login: "ewa", nazwa: "Ewa Klientka", rola: "klient", projekty: ["konta-a"] }))).json();
+  const redaktor = await (await api("/api/uzytkownicy", json({ nowe: true, login: "jan", nazwa: "Jan Redaktor", rola: "redaktor", projekty: ["konta-a"] }))).json();
+  assert.equal(klient.haslo.length, 16);
+  assert.equal((await api("/api/uzytkownicy", json({ nowe: true, login: "ewa", rola: "klient", projekty: [] }))).status, 409);
+  const zapisane = JSON.parse(await fs.readFile(path.join(dane, "stan.json"), "utf8")).uzytkownicy.ewa;
+  assert.match(zapisane.haslo, /^scrypt\$/);
+  assert.ok(!JSON.stringify(zapisane).includes(klient.haslo), "hasło nie jest zapisane jawnie");
+
+  assert.equal(await zaloguj("ewa", "zle-haslo"), 401);
+  assert.equal(await zaloguj("nikt", klient.haslo), 401);
+  const ewa = jako(await zaloguj("ewa", klient.haslo));
+  const jan = jako(await zaloguj("jan", redaktor.haslo));
+
+  // Klient: tylko swój projekt, bez publikacji, wgrywania, kosztów i kont.
+  assert.deepEqual((await (await ewa("/api/projekty")).json()).projekty.map((p) => p.id), ["konta-a"]);
+  assert.equal((await ewa("/api/p/konta-b/historia")).status, 404, "cudzy projekt wygląda jak nieistniejący");
+  assert.equal((await ewa("/api/p/konta-a/historia")).status, 200);
+  assert.equal((await ewa("/api/p/konta-a/pliki")).status, 200);
+  assert.equal((await ewa("/api/p/konta-a/pliki?sciezka=a.txt", { method: "POST", body: "x" })).status, 403);
+  assert.equal((await ewa("/api/p/konta-a/opublikuj", json({}))).status, 403);
+  assert.equal((await ewa("/api/p/konta-a/plan", json({ tresc: "x" }))).status, 403);
+  assert.equal((await ewa("/api/zuzycie")).status, 403);
+  assert.equal((await ewa("/api/uzytkownicy")).status, 403);
+  assert.equal((await ewa("/api/projekty?id=nowy&szablon=pusta", { method: "POST" })).status, 403);
+  assert.equal((await (await ewa("/api/ja")).json()).mozliwosci.publikacja, false);
+
+  // Podgląd klienta: tylko jego projekt.
+  const { wejscie } = await (await ewa("/api/podglad")).json();
+  const podglad = (await fetch(`${wejscie}&dalej=/`, { redirect: "manual" })).headers.get("set-cookie").split(";")[0];
+  assert.equal((await fetch(`${PODGLAD}/konta-a/`, { headers: { Cookie: podglad } })).status, 200);
+  const odpPodgladu = await fetch(`${PODGLAD}/konta-a/`, { headers: { Cookie: podglad } });
+  assert.equal((await fetch(`${PODGLAD}/konta-b/`, { headers: { Cookie: podglad } })).status, 404);
+  // Piaskownica: pusty origin dla stron podglądu (bez allow-same-origin), żeby skrypt projektu A nie czytał projektu B.
+  assert.match(odpPodgladu.headers.get("content-security-policy"), /sandbox allow-scripts/);
+  assert.ok(!odpPodgladu.headers.get("content-security-policy").includes("allow-same-origin"));
+  // Klient nie widzi adresu webhooka ani e-maila powiadomień (to ustawienia, do których nie ma prawa).
+  await api("/api/p/konta-a/ustawienia", json({ formularzeWebhook: "https://example.com/hook/tajne", formularzeEmail: "a@b.pl" }));
+  const widokKlienta = JSON.stringify(await (await ewa("/api/p/konta-a/historia")).json()) + JSON.stringify(await (await ewa("/api/projekty")).json());
+  assert.ok(!widokKlienta.includes("tajne") && !widokKlienta.includes("a@b.pl"));
+
+  // Redaktor: wgrywa (commit z jego nazwą jako autorem) i publikuje, ale domeny nie zmienia.
+  assert.equal((await jan("/api/p/konta-a/pliki?sciezka=cennik.txt", { method: "POST", body: "100 zł" })).status, 200);
+  const historia = await (await jan("/api/p/konta-a/historia")).json();
+  assert.equal(historia.wpisy[0].autor, "Jan Redaktor");
+  assert.equal((await jan("/api/p/konta-a/opublikuj", json({}))).status, 200);
+  assert.equal((await jan("/api/p/konta-a/ustawienia", json({ domena: "jan.example.com" }))).status, 403);
+  assert.equal((await jan("/api/p/konta-a/ustawienia", json({ nazwa: "A2", domena: "" }))).status, 200);
+  assert.equal((await jan("/api/p/konta-a/usun", json({ potwierdzenie: "konta-a" }))).status, 403);
+
+  // Własna zmiana hasła: stare sesje tego konta wygasają, bieżąca dostaje nowe ciasteczko.
+  assert.equal((await ewa("/api/konto/haslo", json({ stare: "zle", nowe: "nowe-haslo-123" }))).status, 400);
+  assert.equal((await ewa("/api/konto/haslo", json({ stare: klient.haslo, nowe: "krotkie" }))).status, 400);
+  const zmiana = await ewa("/api/konto/haslo", json({ stare: klient.haslo, nowe: "nowe-haslo-123" }));
+  assert.equal(zmiana.status, 200);
+  assert.equal((await ewa("/api/ja")).status, 401, "stare ciasteczko po zmianie hasła nie działa");
+  assert.equal((await jako(zmiana.headers.get("set-cookie").split(";")[0])("/api/ja")).status, 200);
+  assert.equal(typeof await zaloguj("ewa", "nowe-haslo-123"), "string");
+  assert.equal((await api("/api/konto/haslo", json({ stare: "x", nowe: "y".repeat(12) }))).status, 400, "hasło konta głównego tylko w .env");
+
+  // Zmiana uprawnień wylogowuje konto; nowe hasło od administratora; usunięcie konta.
+  const ewa2 = jako(await zaloguj("ewa", "nowe-haslo-123"));
+  assert.equal((await api("/api/uzytkownicy", json({ login: "ewa", nazwa: "Ewa", rola: "klient", projekty: ["konta-a", "konta-b"] }))).status, 200);
+  assert.equal((await ewa2("/api/ja")).status, 401);
+  const { haslo: reset } = await (await api("/api/uzytkownicy/haslo", json({ login: "ewa" }))).json();
+  const ewa3 = jako(await zaloguj("ewa", reset));
+  assert.equal((await (await ewa3("/api/projekty")).json()).projekty.length, 2);
+  const lista = await (await api("/api/uzytkownicy")).json();
+  assert.deepEqual(lista.konta.map((k) => k.login).sort(), ["admin", "ewa", "jan"]);
+  assert.ok(!JSON.stringify(lista).includes("scrypt"), "lista kont bez skrótów haseł");
+  assert.equal((await api("/api/uzytkownicy/usun", json({ login: "ewa" }))).status, 200);
+  assert.equal((await ewa3("/api/ja")).status, 401);
+  // Konto założone ponownie pod tym samym loginem (licznik wersji znowu od zera) nie przyjmuje starych ciasteczek.
+  await api("/api/uzytkownicy", json({ nowe: true, login: "ewa", rola: "klient", projekty: ["konta-a"] }));
+  for (const stare of [ewa, ewa2, ewa3]) assert.equal((await stare("/api/ja")).status, 401);
+
+  // Usunięcie projektu czyści go z uprawnień kont (nowy projekt o tym id nie dziedziczy dostępu).
+  assert.equal((await api("/api/p/konta-a/usun", json({ potwierdzenie: "konta-a" }))).status, 200);
+  const stan = JSON.parse(await fs.readFile(path.join(dane, "stan.json"), "utf8"));
+  assert.deepEqual(stan.uzytkownicy.jan.projekty, []);
+});
+
+test("integracje: walidacja, wstawianie przy publikacji, blokada do zgody, podgląd", { timeout: 30000 }, async () => {
+  assert.equal((await api("/api/projekty?id=integr&nazwa=I&szablon=glina", { method: "POST" })).status, 200);
+  const { katalog } = await (await api("/api/p/integr/integracje")).json();
+  assert.ok(katalog.some((i) => i.id === "ga4") && katalog.some((i) => i.id === "wlasny-kod"));
+  assert.equal((await api("/api/p/integr/integracje", json({ id: "ga4", wlaczona: true, wartosci: { id: "UA-123" } }))).status, 400);
+  assert.equal((await api("/api/p/integr/integracje", json({ id: "nie-ma", wlaczona: true }))).status, 400);
+  assert.equal((await api("/api/p/integr/integracje", json({ id: "ga4", wlaczona: true, wartosci: { id: "G-AB12CD34EF" } }))).status, 200);
+  assert.equal((await api("/api/p/integr/integracje", json({ id: "przycisk-kontaktu", wlaczona: true, wartosci: { rodzaj: "telefon", numer: "+48 600 100 200" } }))).status, 200);
+  assert.equal((await api("/api/p/integr/integracje", json({ id: "dane-firmy", wlaczona: true, wartosci: { nazwa: "Glina </script>", miasto: "Kraków $' $&" } }))).status, 200);
+
+  // Opublikowana strona: GA jako zablokowany skrypt (type=text/plain), baner zgód, przycisk; dane firmy tylko na głównej.
+  const glowna = await (await fetch(`${STRONY}/integr/`)).text();
+  assert.match(glowna, /<script type="text\/plain" data-zgoda="analityka" data-src="https:\/\/www\.googletagmanager\.com\/gtag\/js\?id=G-AB12CD34EF">/);
+  assert.ok(!/<script src="https:\/\/www\.googletagmanager/.test(glowna), "GA nie ładuje się bez zgody");
+  assert.match(glowna, /data-edytor-integracja="zgody"/);
+  assert.match(glowna, /href="tel:\+48600100200"/);
+  assert.match(glowna, /"@type":"LocalBusiness","name":"Glina \\u003c\/script>"/);
+  assert.match(glowna, /"addressLocality":"Kraków \$' \$&"/, "znaki $ w wartościach nie są wzorcami zamiany");
+  const pliki = (await (await api("/api/p/integr/pliki")).json()).pliki.map((p) => p.sciezka);
+  const podstrona = pliki.find((p) => p.endsWith(".html") && p !== "index.html");
+  if (podstrona) assert.ok(!(await (await fetch(`${STRONY}/integr/${podstrona}`)).text()).includes("LocalBusiness"));
+  assert.ok(!(await fs.readFile(path.join(dane, "projekty/integr/strona/index.html"), "utf8")).includes("data-zgoda"), "repozytorium strony bez integracji");
+
+  // Podgląd: przycisk tak, analityka nie.
+  const { wejscie } = await (await api("/api/podglad")).json();
+  const podglad = (await fetch(`${wejscie}&dalej=/`, { redirect: "manual" })).headers.get("set-cookie").split(";")[0];
+  const wPodgladzie = await (await fetch(`${PODGLAD}/integr/`, { headers: { Cookie: podglad } })).text();
+  assert.match(wPodgladzie, /tel:\+48600100200/);
+  assert.ok(!wPodgladzie.includes("googletagmanager"));
+
+  // Własny kod tylko dla administratora; redaktor go nie widzi i nie ustawi.
+  const red = await (await api("/api/uzytkownicy", json({ nowe: true, login: "ola", rola: "redaktor", projekty: ["integr"] }))).json();
+  const ola = jako(await zaloguj("ola", red.haslo));
+  assert.equal((await ola("/api/p/integr/integracje", json({ id: "wlasny-kod", wlaczona: true, wartosci: { head: "<script>x</script>" } }))).status, 400);
+  assert.ok(!(await (await ola("/api/p/integr/integracje")).json()).katalog.some((i) => i.id === "wlasny-kod"));
+  assert.equal((await api("/api/p/integr/integracje", json({ id: "wlasny-kod", wlaczona: true, wartosci: { body: '<script type="text/plain" data-zgoda="marketing">piksel()</script>' } }))).status, 200);
+  assert.match(await (await fetch(`${STRONY}/integr/`)).text(), /"marketing":"Marketing/, "kategoria z własnego kodu trafia do banera");
+
+  // Wyłączenie usuwa fragment ze strony.
+  assert.equal((await api("/api/p/integr/integracje", json({ id: "ga4", wlaczona: false, wartosci: { id: "G-AB12CD34EF" } }))).status, 200);
+  assert.ok(!(await (await fetch(`${STRONY}/integr/`)).text()).includes("G-AB12CD34EF"));
+});
+
+test("formularze: eksport CSV i usunięcie zgłoszenia (RODO)", async () => {
+  const wyslij = (pola) => fetch(`${STRONY}/integr/__formularz`, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json", "X-Forwarded-For": `10.8.0.${++numerAdresu}` }, body: new URLSearchParams(pola) });
+  assert.equal((await wyslij({ imie: "Anna", wiadomosc: "Dzień dobry; proszę o \"ofertę\"" })).status, 200);
+  assert.equal((await wyslij({ imie: "=HYPERLINK(\"http://zlo\")", wiadomosc: "x" })).status, 200);
+  const bajty = Buffer.from(await (await api("/api/p/integr/formularze?format=csv")).arrayBuffer());
+  assert.deepEqual([...bajty.subarray(0, 3)], [0xef, 0xbb, 0xbf], "BOM dla Excela");
+  const csv = bajty.toString("utf8").slice(1);
+  assert.ok(csv.startsWith("kiedy;strona;temat;imie;wiadomosc"), csv.slice(0, 80));
+  assert.match(csv, /"Dzień dobry; proszę o ""ofertę"""/);
+  assert.match(csv, /'=HYPERLINK/, "formuły w CSV są unieszkodliwione");
+  const { zgloszenia } = await (await api("/api/p/integr/formularze")).json();
+  assert.equal(zgloszenia.length, 2);
+  const klientka = await (await api("/api/uzytkownicy", json({ nowe: true, login: "kasia", rola: "klient", projekty: ["integr"] }))).json();
+  assert.equal((await jako(await zaloguj("kasia", klientka.haslo))("/api/p/integr/usun-zgloszenie", json({ id: zgloszenia[0].id }))).status, 403);
+  assert.equal((await api("/api/p/integr/usun-zgloszenie", json({ id: "zle" }))).status, 404);
+  assert.equal((await api("/api/p/integr/usun-zgloszenie", json({ id: zgloszenia[0].id }))).status, 200);
+  const po = (await (await api("/api/p/integr/formularze")).json()).zgloszenia;
+  assert.deepEqual(po.map((z) => z.id), [zgloszenia[1].id]);
+  const surowe = await fs.readdir(path.join(dane, "projekty/integr/formularze"));
+  for (const plik of surowe) assert.ok(!(await fs.readFile(path.join(dane, "projekty/integr/formularze", plik), "utf8")).includes(zgloszenia[0].id), "usunięte także z pliku");
+});
+
+test("monitor zewnętrzny: meldunek ok i /fail z opisem problemu", { timeout: 30000 }, async () => {
+  const meldunki = [];
+  const atrapa = http.createServer((z, o) => { let t = ""; z.on("data", (d) => { t += d; }); z.on("end", () => { meldunki.push({ url: z.url, t }); o.end("OK"); }); });
+  await new Promise((ok) => atrapa.listen(0, "127.0.0.1", ok));
+  const { port } = atrapa.address();
+  const daneMonitora = await fs.mkdtemp(path.join(os.tmpdir(), "edytor-monitor-")); // osobne dane: nie ruszamy głównego serwera testów
+  const env = { ...process.env, EDYTOR_MONITOR_URL: `http://127.0.0.1:${port}/ping/abc`, EDYTOR_ALERT_OPOZNIENIE_MS: "300",
+    EDYTOR_ALERT_MIEJSCE_PROCENT: "0", EDYTOR_DANE: daneMonitora, EDYTOR_HASLO: "h", EDYTOR_SEKRET: "s",
+    EDYTOR_PORT_PANELU: "28180", EDYTOR_PORT_STRONY: "28181", EDYTOR_PORT_PODGLADU: "28182",
+    EDYTOR_ADRES_PANELU: "http://localhost:28180", EDYTOR_ADRES_PODGLADU: "http://localhost:28182", EDYTOR_ADRES_STRON: "http://localhost:28181",
+    EDYTOR_KOPIE: path.join(daneMonitora, "nie-ma-kopii"), EDYTOR_ZRZUTY: "0", HOME: path.join(daneMonitora, "dom"),
+    GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@t", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@t" };
+  const drugi = spawn("node", ["serwer.mjs"], { cwd: APLIKACJA, env, stdio: "ignore" });
+  try {
+    for (let i = 0; i < 50 && !meldunki.length; i++) await new Promise((ok) => setTimeout(ok, 200));
+    assert.equal(meldunki[0]?.url, "/ping/abc");
+    assert.match(meldunki[0].t, /^ok · projekty: \d+/);
+  } finally {
+    drugi.kill("SIGKILL");
+    atrapa.close();
+  }
+  // Ten sam proces przy niedostępnym panelu (zły adres) melduje /fail.
+  meldunki.length = 0;
+  const atrapa2 = http.createServer((z, o) => { let t = ""; z.on("data", (d) => { t += d; }); z.on("end", () => { meldunki.push({ url: z.url, t }); o.end("OK"); }); });
+  await new Promise((ok) => atrapa2.listen(port, "127.0.0.1", ok));
+  const trzeci = spawn("node", ["serwer.mjs"], { cwd: APLIKACJA, env: { ...env, EDYTOR_ADRES_PANELU: "http://127.0.0.1:9" }, stdio: "ignore" });
+  try {
+    for (let i = 0; i < 80 && !meldunki.length; i++) await new Promise((ok) => setTimeout(ok, 200));
+    assert.equal(meldunki[0]?.url, "/ping/abc/fail");
+    assert.match(meldunki[0].t, /panel nie odpowiada/);
+  } finally {
+    trzeci.kill("SIGKILL");
+    atrapa2.close();
+    await fs.rm(daneMonitora, { recursive: true, force: true });
+  }
+});
+
 test("wylogowanie unieważnia skopiowane ciasteczko", async () => {
   const kopia = ciastko;
   await api("/wyloguj", { redirect: "manual" });

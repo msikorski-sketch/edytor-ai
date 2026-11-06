@@ -8,6 +8,7 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
+import { wstawIntegracje } from "./integracje.mjs";
 
 const exec = promisify(execFile);
 const blad = (kod, tekst) => Object.assign(new Error(tekst), { kod });
@@ -58,11 +59,14 @@ export class Projekt {
     this.stan = {};
     this.zajete = null; // nazwa trwającej operacji albo null
     this.przerwanie = null; // AbortController pracującego agenta
+    this.autor = null; // konto, które zajęło projekt — jego nazwa trafia jako autor do commitów
     this.kolejkaZapisow = Promise.resolve();
   }
 
   git(...argumenty) {
-    return exec("git", ["-C", this.strona, ...argumenty], { maxBuffer: 20 * 1024 * 1024 }).then((w) => w.stdout.trim());
+    // Autor commita = osoba, która zleciła zmianę (committer zostaje „Edytor AI”). Historia pokazuje, kto co zmienił.
+    const env = this.autor ? { ...process.env, GIT_AUTHOR_NAME: this.autor.nazwa || this.autor.login, GIT_AUTHOR_EMAIL: `${this.autor.login}@edytor` } : undefined;
+    return exec("git", ["-C", this.strona, ...argumenty], { maxBuffer: 20 * 1024 * 1024, env }).then((w) => w.stdout.trim());
   }
 
   async wczytajStan() {
@@ -79,14 +83,16 @@ export class Projekt {
   }
 
   // Blokada zajmowana synchronicznie: dwie operacje zmieniające ten projekt nie pójdą naraz.
-  zajmij(nazwa) {
+  zajmij(nazwa, autor = null) {
     if (this.zajete) return false;
     this.zajete = nazwa;
+    this.autor = autor;
     return true;
   }
   zwolnij() {
     this.zajete = null;
     this.przerwanie = null;
+    this.autor = null;
   }
 
   async zatwierdz(opis) {
@@ -109,6 +115,7 @@ export class Projekt {
       await potok(["git", "-C", this.strona, "archive", "--format=tar", commit], ["tar", "-x", "-C", katalog]);
       await oczyscKatalog(katalog);
       await uzupelnijSeo(katalog, this.adresStrony?.());
+      await wstawIntegracje(katalog, this.stan.integracje, this.adresStrony?.());
     } catch (e) {
       await fs.rm(katalog, { recursive: true, force: true });
       throw e;
@@ -128,10 +135,11 @@ export class Projekt {
   }
 
   async historia(ile = 30) {
-    const wynik = await this.git("log", `-${ile}`, "--pretty=format:%h%x1f%s%x1f%cI");
+    const wynik = await this.git("log", `-${ile}`, "--pretty=format:%h%x1f%s%x1f%cI%x1f%an%x1f%ae");
     return wynik.split("\n").filter(Boolean).map((linia) => {
-      const [commit, opis, kiedy] = linia.split("\x1f");
-      return { commit, opis, kiedy };
+      const [commit, opis, kiedy, autor, email] = linia.split("\x1f");
+      // Autor tylko dla commitów zleconych z konta (adres <login>@edytor); starsze i systemowe są bez autora.
+      return { commit, opis, kiedy, autor: email?.endsWith("@edytor") ? autor : null };
     });
   }
 

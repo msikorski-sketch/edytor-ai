@@ -9,7 +9,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends git tar libarch
 WORKDIR /app
 COPY package.json ./
 RUN npm install --omit=dev && npm cache clean --force
-COPY serwer.mjs agent.mjs projekty.mjs zrzuty.mjs siec.mjs importer.mjs formularze.mjs zadania.mjs domeny.mjs ./
+COPY serwer.mjs agent.mjs projekty.mjs zrzuty.mjs siec.mjs importer.mjs formularze.mjs zadania.mjs domeny.mjs konta.mjs integracje.mjs ./
 COPY publiczne ./publiczne
 COPY szablony ./szablony
 
